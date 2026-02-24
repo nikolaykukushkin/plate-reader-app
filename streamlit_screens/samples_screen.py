@@ -43,13 +43,27 @@ def render_samples():
             st.rerun()
 
 
+def _stable_df(session_key, build_fn, n_rows):
+    """Return a stable DataFrame stored in session state.
+
+    Initializes from *build_fn()* the first time, or when the expected
+    row count changes (e.g. user went back and changed selections).
+    Passing the same object to st.data_editor across reruns prevents
+    Streamlit from resetting the widget's pending edits.
+    """
+    if (session_key not in st.session_state
+            or len(st.session_state[session_key]) != n_rows):
+        st.session_state[session_key] = build_fn()
+    return st.session_state[session_key]
+
+
 def _render_experiment_config(idx: int, exp: Experiment):
     n = exp.num_samples
     if n == 0:
         st.info("No luminescence data selected for this experiment.")
         return
 
-    st.markdown(f"**{n} samples** &nbsp; | &nbsp; Date: {exp.date or '—'} &nbsp; | &nbsp; Operator: {exp.operator or '—'}")
+    st.markdown(f"**{n} samples** &nbsp; | &nbsp; Date: {exp.date or '\u2014'} &nbsp; | &nbsp; Operator: {exp.operator or '\u2014'}")
 
     col_left, col_right = st.columns(2, gap="large")
 
@@ -58,12 +72,17 @@ def _render_experiment_config(idx: int, exp: Experiment):
         st.markdown("##### Sample Names")
         st.caption("Paste a column from Excel or type names directly.")
 
-        names_df = pd.DataFrame({
-            "#": list(range(1, n + 1)),
-            "Sample Name": exp.sample_names[:n],
-        })
+        names_base = _stable_df(
+            f"_names_base_{idx}",
+            lambda: pd.DataFrame({
+                "#": list(range(1, n + 1)),
+                "Sample Name": [s if s else "" for s in exp.sample_names[:n]],
+            }),
+            n,
+        )
+
         edited_names = st.data_editor(
-            names_df,
+            names_base,
             num_rows="fixed",
             use_container_width=True,
             hide_index=True,
@@ -71,9 +90,9 @@ def _render_experiment_config(idx: int, exp: Experiment):
             key=f"sample_names_{idx}",
             height=min(35 * n + 40, 500),
         )
-        # Store back
+        # Sync edits back to model (does not mutate names_base)
         for i, name in enumerate(edited_names["Sample Name"]):
-            exp.sample_names[i] = name if name else ""
+            exp.sample_names[i] = str(name) if name else ""
 
     # ---- Bradford configuration (right) ----
     with col_right:
@@ -81,12 +100,17 @@ def _render_experiment_config(idx: int, exp: Experiment):
             st.markdown("##### Bradford Standard Concentrations (mg/ml)")
             st.caption("Paste a column of 8 values or edit directly.")
 
-            conc_df = pd.DataFrame({
-                "Standard": [f"Std {i+1}" for i in range(8)],
-                "Concentration": exp.standard_concentrations,
-            })
+            conc_base = _stable_df(
+                f"_conc_base_{idx}",
+                lambda: pd.DataFrame({
+                    "Standard": [f"Std {i+1}" for i in range(8)],
+                    "Concentration": list(exp.standard_concentrations),
+                }),
+                8,
+            )
+
             edited_conc = st.data_editor(
-                conc_df,
+                conc_base,
                 num_rows="fixed",
                 use_container_width=True,
                 hide_index=True,
@@ -106,6 +130,8 @@ def _render_experiment_config(idx: int, exp: Experiment):
             st.markdown("##### Bradford Normalization per Sample")
             st.caption("Uncheck to exclude specific samples from Bradford normalization.")
 
+            # Toggles are checkboxes — not affected by paste issues,
+            # so rebuilding each run is fine and keeps sample names current.
             toggle_df = pd.DataFrame({
                 "#": list(range(1, n + 1)),
                 "Sample": [exp.sample_names[i] or f"Sample {i+1}" for i in range(n)],

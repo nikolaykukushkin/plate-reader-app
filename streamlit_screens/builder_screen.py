@@ -8,32 +8,36 @@ from app.data_model import AppState, Experiment, CellSelection, _col_letter
 
 # ---- helpers ---------------------------------------------------------------
 
+def _col_index(name) -> int:
+    """Convert a column name back to a 0-based integer index.
+
+    Handles int pass-through, spreadsheet letters ('A'->0, 'Z'->25, 'AA'->26),
+    and any other string by returning 0 as fallback.
+    """
+    if isinstance(name, int):
+        return name
+    if isinstance(name, str) and name.isalpha():
+        result = 0
+        for ch in name.upper():
+            result = result * 26 + (ord(ch) - ord('A') + 1)
+        return result - 1
+    try:
+        return int(name)
+    except (ValueError, TypeError):
+        return 0
+
+
 def _cells_to_selection(cells) -> CellSelection:
     """Convert st.dataframe selection dict/tuple list to a CellSelection rectangle."""
     if cells and isinstance(cells[0], (tuple, list)):
         rows = [c[0] for c in cells]
-        cols = [c[1] for c in cells]
+        cols = [_col_index(c[1]) for c in cells]
     else:
         rows = [c["row"] for c in cells]
-        cols = [c["column"] for c in cells]
+        cols = [_col_index(c["column"]) for c in cells]
     return CellSelection(
-        row_start=min(rows),
-        row_end=max(rows) + 1,
-        col_start=min(cols),
-        col_end=max(cols) + 1,
-    )
-
-
-def _sel_pills(selections, label, color):
-    """One-line HTML summary of selections."""
-    if not selections:
-        return f'<span style="color:#aaa;font-size:.82em">{label}: —</span>'
-    total = sum(s.num_cells for s in selections)
-    locs = " + ".join(s.label() for s in selections)
-    return (
-        f'<span style="background:{color};padding:1px 7px;border-radius:10px;'
-        f'font-size:.78em;font-weight:500">{label}: {total}</span> '
-        f'<span style="font-size:.72em;color:#666">{locs}</span>'
+        row_start=min(rows), row_end=max(rows) + 1,
+        col_start=min(cols), col_end=max(cols) + 1,
     )
 
 
@@ -50,6 +54,17 @@ def _get_pending(event):
     return None
 
 
+def _led_html(on, label, css_class):
+    """Return HTML for one LED dot + label."""
+    cls = css_class if on else "led-off"
+    color = {"led-lumi": "#60a5fa", "led-std": "#f472b6", "led-smp": "#a78bfa"}.get(css_class, "#ccc")
+    label_color = color if on else "#bbb"
+    return (
+        f'<span class="led {cls}"></span>'
+        f'<span class="led-label" style="color:{label_color}">{label}</span>'
+    )
+
+
 # ---- main render -----------------------------------------------------------
 
 def render_builder():
@@ -63,31 +78,30 @@ def render_builder():
             st.rerun()
         return
 
-    st.title("Experiment Builder")
+    st.markdown("### Experiment Builder")
 
-    # ---- layout: grid (left, wide) + experiment panel (right) ----
     grid_col, panel_col = st.columns([5, 2], gap="medium")
 
     # ================================================================
-    # RIGHT PANEL — compact experiment tiles
+    # RIGHT PANEL — tiles + active detail
     # ================================================================
     with panel_col:
-        # --- experiment tiles ---
         for i, exp in enumerate(app.experiments):
-            is_active = i == app.active_experiment_idx
-            _render_experiment_tile(app, i, exp, is_active)
+            _render_tile(app, i, exp, i == app.active_experiment_idx)
 
-        # --- add button ---
         if st.button("+ New Experiment", use_container_width=True):
             idx = app.add_experiment(name=f"Experiment {len(app.experiments) + 1}")
             app.active_experiment_idx = idx
             st.rerun()
 
+        if app.experiments:
+            st.markdown("---")
+            _render_active_detail(app)
+
     # ================================================================
     # LEFT PANEL — spreadsheet + assign buttons
     # ================================================================
     with grid_col:
-        # Display grid with letter column headers
         display_df = df.copy()
         display_df.columns = [_col_letter(c) for c in range(len(display_df.columns))]
 
@@ -102,7 +116,7 @@ def render_builder():
 
         pending = _get_pending(event)
 
-        # --- assign buttons (always visible) ---
+        # --- assign buttons ---
         has_exp = bool(app.experiments)
         active_exp = app.experiments[app.active_experiment_idx] if has_exp else None
         sel_label = f" ({pending.num_cells})" if pending else ""
@@ -170,72 +184,98 @@ def render_builder():
             st.caption("Fix uneven Bradford replicate counts before continuing.")
 
 
-# ---- experiment tile -------------------------------------------------------
+# ---- tile ------------------------------------------------------------------
 
-def _render_experiment_tile(app: AppState, idx: int, exp: Experiment, is_active: bool):
-    """Render a single compact experiment tile. Click anywhere to activate."""
-    border_color = "#4361ee" if is_active else "#d0d0d0"
-    bg = "#f0f4ff" if is_active else "#fff"
-    indicator = "\u25cf" if is_active else "\u25cb"
+def _render_tile(app: AppState, idx: int, exp: Experiment, is_active: bool):
+    """Fixed-size compact tile. The button IS the tile — click to activate."""
+    name = exp.name or f"Experiment {idx + 1}"
 
-    # Tile wrapper
-    st.markdown(
-        f'<div style="border:2px solid {border_color};background:{bg};'
-        f'border-radius:8px;padding:10px 12px;margin-bottom:6px">',
-        unsafe_allow_html=True,
-    )
-
-    # Row 1: indicator + name + delete
-    c_ind, c_name, c_del = st.columns([0.3, 3.5, 0.5])
-    with c_ind:
-        # Clickable indicator to activate
-        if st.button(indicator, key=f"act_{idx}", help="Activate this experiment"):
+    # Button = the entire clickable tile surface
+    c_btn, c_del = st.columns([6, 1])
+    with c_btn:
+        if st.button(
+            name[:22],
+            key=f"tile_{idx}",
+            type="primary" if is_active else "secondary",
+            use_container_width=True,
+        ):
             app.active_experiment_idx = idx
             st.rerun()
-    with c_name:
-        exp.name = st.text_input(
-            "n", value=exp.name, key=f"tn_{idx}",
-            label_visibility="collapsed", placeholder="Name",
-        )
     with c_del:
-        if st.button("\u2716", key=f"td_{idx}", help="Remove"):
+        if st.button("\u2716", key=f"del_{idx}"):
             app.remove_experiment(idx)
             st.rerun()
 
-    # Row 2: date + operator (compact)
-    c_d, c_o = st.columns(2)
-    with c_d:
+    # LED status dots
+    leds = (
+        _led_html(bool(exp.luminescence_selections), "L", "led-lumi")
+        + _led_html(bool(exp.bradford_standard_selections), "S", "led-std")
+        + _led_html(bool(exp.bradford_sample_selections), "B", "led-smp")
+    )
+    st.markdown(f'<div class="tile-leds">{leds}</div>', unsafe_allow_html=True)
+
+
+# ---- active experiment detail ----------------------------------------------
+
+def _render_active_detail(app: AppState):
+    """Compact editing panel for the currently active experiment."""
+    idx = app.active_experiment_idx
+    exp = app.experiments[idx]
+
+    st.markdown('<div class="detail-panel">', unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns([3, 2, 1])
+    with c1:
+        exp.name = st.text_input(
+            "Name", value=exp.name, key=f"an_{idx}",
+            label_visibility="collapsed", placeholder="Name",
+        )
+    with c2:
         exp.date = st.text_input(
-            "d", value=exp.date, key=f"td2_{idx}",
+            "Date", value=exp.date, key=f"ad_{idx}",
             label_visibility="collapsed", placeholder="Date",
         )
-    with c_o:
+    with c3:
         exp.operator = st.text_input(
-            "o", value=exp.operator, key=f"to_{idx}",
-            label_visibility="collapsed", placeholder="Initials",
+            "Op", value=exp.operator, key=f"ao_{idx}",
+            label_visibility="collapsed", placeholder="Op",
         )
 
-    # Selection summary lines
-    st.markdown(
-        _sel_pills(exp.luminescence_selections, "Lumi", "#dbeafe") + "<br>"
-        + _sel_pills(exp.bradford_standard_selections, "Std", "#fce7f3") + "<br>"
-        + _sel_pills(exp.bradford_sample_selections, "Smp", "#e8d5f5"),
-        unsafe_allow_html=True,
-    )
+    # Selection badges
+    badges = []
+    for sels, label, cls in [
+        (exp.luminescence_selections, "Lumi", "badge-lumi"),
+        (exp.bradford_standard_selections, "Std", "badge-std"),
+        (exp.bradford_sample_selections, "Smp", "badge-bradford"),
+    ]:
+        if sels:
+            n = sum(s.num_cells for s in sels)
+            locs = " + ".join(s.label() for s in sels)
+            badges.append(
+                f'<span class="sel-badge {cls}">{label}: {n}</span> '
+                f'<span style="font-size:.7em;color:#888">{locs}</span>'
+            )
+    if badges:
+        st.markdown("<br>".join(badges), unsafe_allow_html=True)
+    else:
+        st.markdown(
+            '<span class="sel-badge badge-none">No selections yet</span>',
+            unsafe_allow_html=True,
+        )
 
-    # Stats line
+    # Stats
     parts = []
     if exp.num_samples > 0:
         parts.append(f"{exp.num_samples} samples")
     if exp.has_bradford:
-        parts.append(f"std reps {exp.bradford_std_replicates}")
-        parts.append(f"smp reps {exp.bradford_sample_replicates}")
+        parts.append(f"std\u00d7{exp.bradford_std_replicates}")
+        parts.append(f"smp\u00d7{exp.bradford_sample_replicates}")
     if parts:
-        st.caption(" · ".join(parts))
+        st.caption(" \u00b7 ".join(parts))
     if exp.has_bradford and not exp.bradford_sample_replicates_valid:
         st.error("Uneven replicate count!")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ---- selection map ---------------------------------------------------------

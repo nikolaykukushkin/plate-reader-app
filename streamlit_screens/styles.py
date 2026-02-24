@@ -62,5 +62,37 @@ def apply_global_styles():
 
     /* Nav buttons */
     .nav-row { display: flex; gap: 8px; justify-content: space-between; }
+
+    /* --- Synth tile LEDs --- */
+    .tile-leds {
+        margin: -4px 0 6px 2px;
+        line-height: 1;
+    }
+    .led {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        vertical-align: middle;
+        margin: 0 1px;
+    }
+    .led-label {
+        font-size: .65em;
+        vertical-align: middle;
+        font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+        margin-right: 6px;
+    }
+    .led-lumi    { background: #60a5fa; box-shadow: 0 0 5px #60a5fa; }
+    .led-std     { background: #f472b6; box-shadow: 0 0 5px #f472b6; }
+    .led-smp     { background: #a78bfa; box-shadow: 0 0 5px #a78bfa; }
+    .led-off     { background: #ccc; }
+
+    /* --- Active detail panel --- */
+    .detail-panel {
+        background: #f0f2f6;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 14px 6px 14px;
+    }
     </style>
     """, unsafe_allow_html=True)
