@@ -20,6 +20,11 @@ def main():
     # Set application icon (if available)
     # root.iconbitmap('icon.ico')  # Uncomment if you have an icon
 
+    # Bring window to foreground on macOS
+    root.lift()
+    root.attributes('-topmost', True)
+    root.after(100, lambda: root.attributes('-topmost', False))
+
     # Create and run the application
     app = PlateReaderApp(root)
     app.run()

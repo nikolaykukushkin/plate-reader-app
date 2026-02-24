@@ -25,7 +25,13 @@ def read_file(filepath: str) -> Optional[pd.DataFrame]:
 
     try:
         if file_ext in ['.xls', '.xlsx']:
-            return _read_excel(filepath)
+            # Some plate readers save tab-delimited text with an .xls extension.
+            # Try reading as a real Excel file first; if that fails, fall back to
+            # reading as tab-delimited text.
+            try:
+                return _read_excel(filepath)
+            except Exception:
+                return _read_text(filepath)
         else:
             return _read_text(filepath)
     except Exception as e:
