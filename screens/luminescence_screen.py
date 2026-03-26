@@ -6,6 +6,7 @@ from tkinter import ttk, messagebox, scrolledtext
 from typing import Callable
 
 from parsing.luminescence_parser import detect_luminescence_grid, parse_luminescence_grid
+from widgets.grid_selector import GridSelectorDialog
 
 
 class LuminescenceScreen(ttk.Frame):
@@ -128,8 +129,20 @@ class LuminescenceScreen(ttk.Frame):
 
     def _manual_selection(self):
         """Open manual grid selection dialog."""
-        messagebox.showinfo("Manual Selection", "Manual grid selection will be implemented in a future update.")
-        # TODO: Implement grid selector widget
+        if self.data_model.raw_dataframe is None:
+            messagebox.showwarning("Warning", "No data loaded. Please upload a file first.")
+            return
+
+        dialog = GridSelectorDialog(
+            self, self.data_model.raw_dataframe, title="Select Luminescence Grid Region"
+        )
+
+        if dialog.result is not None:
+            grid, bounds = dialog.result
+            self.data_model.luminescence_raw_grid = grid
+            self.data_model.luminescence_raw_bounds = bounds
+            self._display_original_grid()
+            self._parse_luminescence()
 
     def _on_next_clicked(self):
         """Handle next button click."""
